@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - config-service
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+
+  content-service:
+    build: ./content-service
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+      - solr
+      - config-service
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/opencms_content
+
+  user-service:
+    build: ./user-service
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres
+      - redis
+      - config-service
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/opencms_users
+
+  publishing-service:
+    build: ./publishing-service
+    ports:
+      - "8083:8083"
+    depends_on:
+      - postgres
+      - config-service
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+
+  rendering-service:
+    build: ./rendering-service
+    ports:
+      - "8084:8084"
+    depends_on:
+      - config-service
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+
+  config-service:
+    build: ./config-service
+    ports:
+      - "8888:8888"
+    environment:
+      - SPRING_PROFILES_ACTIVE=native
+
+  postgres:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  solr:
+    image: solr:9.8
+    ports:
+      - "8983:8983"
+    volumes:
+      - solr-data:/var/solr
+
+volumes:
+  postgres-data:
+  solr-data:
