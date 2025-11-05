@@ -7,8 +7,13 @@ services:
       - "8080:8080"
     depends_on:
       - config-service
+      - eureka-server
     environment:
       - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATASOURCE_URL=jdbc:h2:mem:gateway_db
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver
+      - SPRING_JPA_DATABASE_PLATFORM=org.hibernate.dialect.H2Dialect
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://eureka-server:8761/eureka/
 
   content-service:
     build: ./content-service
@@ -50,6 +55,13 @@ services:
       - "8084:8084"
     depends_on:
       - config-service
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+
+  eureka-server:
+    image: springcloud/eureka
+    ports:
+      - "8761:8761"
     environment:
       - SPRING_PROFILES_ACTIVE=dev
 

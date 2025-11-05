@@ -1,0 +1,108 @@
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        # Built-in services (session updates, page/file unlocking)
+        - id: builtin-services
+          uri: lb://user-service
+          predicates:
+            - Path=/handleBuiltinService/**
+          filters:
+            - StripPrefix=0
+        
+        # GWT RPC services (*.gwt endpoints)
+        - id: gwt-services
+          uri: lb://content-service
+          predicates:
+            - Path=/**/*.gwt
+        
+        # Workplace UI and dialogs (authenticated endpoints)
+        - id: workplace-ui
+          uri: lb://user-service
+          predicates:
+            - Path=/workplace/**
+          filters:
+            - AuthenticationFilter
+        
+        # VAADIN resources (Vaadin UI framework)
+        - id: vaadin-resources
+          uri: lb://user-service
+          predicates:
+            - Path=/VAADIN/**
+        
+        # Setup servlet
+        - id: setup
+          uri: lb://user-service
+          predicates:
+            - Path=/setup/**
+        
+        # Update servlet
+        - id: update
+          uri: lb://user-service
+          predicates:
+            - Path=/update/**
+        
+        # WebDAV servlet
+        - id: webdav
+          uri: lb://content-service
+          predicates:
+            - Path=/webdav/**,/webdav2/**
+        
+        # VFS resources (standard content requests)
+        - id: vfs-resources
+          uri: lb://content-service
+          predicates:
+            - Path=/opencms/**
+        
+        # Error handlers
+        - id: error-handlers
+          uri: lb://rendering-service
+          predicates:
+            - Path=/system/handler/handle/**,/opencms-errorhandler/**
+        
+        # Publishing endpoints
+        - id: publishing
+          uri: lb://publishing-service
+          predicates:
+            - Path=/system/workplace/commons/publish*
+        
+        # Static export
+        - id: export-route
+          uri: lb://content-service
+          predicates:
+            - Path=/export/**
+        
+        # Health check with circuit breaker
+        - id: health-check
+          uri: lb://content-service
+          predicates:
+            - Path=/actuator/health
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: healthCheckCircuitBreaker
+                fallbackUri: forward:/fallback/health
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 30
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    org.opencms.gateway: DEBUG
