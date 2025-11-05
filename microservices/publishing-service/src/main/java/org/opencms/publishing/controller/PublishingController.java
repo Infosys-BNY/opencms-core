@@ -64,11 +64,11 @@ public class PublishingController {
     
     @PostMapping("/resource-groups")
     public ResponseEntity<CmsPublishGroupListDTO> getResourceGroups(
-        @RequestBody Map<String, Object> request
+        @RequestBody ResourceGroupsRequestDTO request
     ) {
-        CmsWorkflowDTO workflow = (CmsWorkflowDTO) request.get("workflow");
-        CmsPublishOptionsDTO options = (CmsPublishOptionsDTO) request.get("options");
-        Boolean projectChanged = (Boolean) request.getOrDefault("projectChanged", false);
+        CmsWorkflowDTO workflow = request.getWorkflow();
+        CmsPublishOptionsDTO options = request.getOptions();
+        Boolean projectChanged = request.getProjectChanged() != null ? request.getProjectChanged() : false;
         
         CmsPublishGroupListDTO groups = resourceGroupingService.getResourceGroups(
             workflow, options, projectChanged
@@ -79,10 +79,10 @@ public class PublishingController {
     
     @PostMapping("/execute")
     public ResponseEntity<CmsWorkflowResponseDTO> executeAction(
-        @RequestBody Map<String, Object> request
+        @RequestBody ExecuteActionRequestDTO request
     ) {
-        CmsWorkflowActionDTO action = (CmsWorkflowActionDTO) request.get("action");
-        CmsWorkflowActionParamsDTO params = (CmsWorkflowActionParamsDTO) request.get("params");
+        CmsWorkflowActionDTO action = request.getAction();
+        CmsWorkflowActionParamsDTO params = request.getParams();
         
         CmsWorkflowResponseDTO response = workflowService.executePublishAction(action, params);
         
