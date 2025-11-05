@@ -27,12 +27,12 @@ services:
     ports:
       - "8082:8082"
     depends_on:
-      - postgres
       - redis
       - config-service
     environment:
       - SPRING_PROFILES_ACTIVE=dev
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/opencms_users
+      - SPRING_DATA_REDIS_HOST=redis
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production-must-be-at-least-256-bits-long-for-hs256-algorithm}
 
   publishing-service:
     build: ./publishing-service
