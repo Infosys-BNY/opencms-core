@@ -13,7 +13,7 @@ public interface ResourceLockRepository extends JpaRepository<ResourceLockEntity
     
     Optional<ResourceLockEntity> findByResourcePath(String resourcePath);
     
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query("DELETE FROM ResourceLockEntity r WHERE r.resourcePath = :resourcePath")
     void deleteByResourcePath(String resourcePath);
 }

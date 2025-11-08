@@ -48,11 +48,21 @@ public class ContentPersistenceService {
                 
                 if (validationResult.hasErrors() || (failOnWarnings && validationResult.hasWarnings())) {
                     LOG.warn("Validation failed for entity: {}", lastEditedEntity.getId());
-                    return new SaveResultDTO(false, validationResult, failOnWarnings, new HashMap<>());
+                    throw new ContentServiceException("Validation failed for entity: " + lastEditedEntity.getId());
                 }
                 
                 byte[] existingContent = vfsService.readFile(structureId);
                 Document xmlDoc = XmlContentParser.parseXml(existingContent);
+                
+                String locale = lastEditedLocale != null ? lastEditedLocale : "en";
+                XmlContentParser.updateDocumentFromEntity(xmlDoc, lastEditedEntity, locale);
+                
+                if (deletedEntities != null) {
+                    for (String deleteId : deletedEntities) {
+                        String deleteLocale = parseLocale(deleteId);
+                        XmlContentParser.removeLocale(xmlDoc, deleteLocale);
+                    }
+                }
                 
                 byte[] xmlContent = XmlContentParser.serializeXml(xmlDoc);
                 vfsService.writeFile(structureId, xmlContent);
@@ -87,6 +97,8 @@ public class ContentPersistenceService {
                 byte[] contentBytes = vfsService.readFile(structureId);
                 Document xmlDoc = XmlContentParser.parseXml(contentBytes);
                 
+                XmlContentParser.updateValueAtPath(xmlDoc, contentPath, locale, value);
+                
                 byte[] updatedContent = XmlContentParser.serializeXml(xmlDoc);
                 vfsService.writeFile(structureId, updatedContent);
                 
@@ -106,5 +118,9 @@ public class ContentPersistenceService {
     private UUID parseEntityId(String entityId) {
         String uuidPart = entityId.contains("_") ? entityId.substring(0, entityId.indexOf("_")) : entityId;
         return UUID.fromString(uuidPart);
+    }
+    
+    private String parseLocale(String entityId) {
+        return entityId.contains("_") ? entityId.substring(entityId.indexOf("_") + 1) : "en";
     }
 }
