@@ -54,11 +54,14 @@ public class ContentPersistenceService {
                 byte[] existingContent = vfsService.readFile(structureId);
                 Document xmlDoc = XmlContentParser.parseXml(existingContent);
                 
-                XmlContentParser.updateDocumentFromEntity(xmlDoc, lastEditedEntity, lastEditedLocale);
+                String locale = lastEditedLocale != null ? lastEditedLocale : "en";
+                XmlContentParser.updateDocumentFromEntity(xmlDoc, lastEditedEntity, locale);
                 
-                for (String deleteId : deletedEntities) {
-                    String deleteLocale = parseLocale(deleteId);
-                    XmlContentParser.removeLocale(xmlDoc, deleteLocale);
+                if (deletedEntities != null) {
+                    for (String deleteId : deletedEntities) {
+                        String deleteLocale = parseLocale(deleteId);
+                        XmlContentParser.removeLocale(xmlDoc, deleteLocale);
+                    }
                 }
                 
                 byte[] xmlContent = XmlContentParser.serializeXml(xmlDoc);
