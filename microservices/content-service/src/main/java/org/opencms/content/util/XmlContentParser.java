@@ -6,6 +6,8 @@ import org.dom4j.Element;
 import org.dom4j.io.SAXReader;
 import org.dom4j.io.XMLWriter;
 import org.dom4j.io.OutputFormat;
+import org.jaxen.dom4j.Dom4jXPath;
+import org.jaxen.SimpleNamespaceContext;
 import org.opencms.content.dto.ContentEntityDTO;
 import org.opencms.content.exception.ContentServiceException;
 import org.slf4j.Logger;
@@ -13,7 +15,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class XmlContentParser {
     
@@ -84,5 +88,173 @@ public class XmlContentParser {
                 entity.addEntityAttribute(name, nestedEntity);
             }
         }
+    }
+    
+    /**
+     * Updates an XML document from a ContentEntityDTO, mapping the entity's attributes
+     * back to XML elements within the specified locale.
+     *
+     * @param xmlDoc the XML document to update
+     * @param entity the entity containing the changes to apply
+     * @param locale the locale to update (e.g., "en", "de")
+     */
+    public static void updateDocumentFromEntity(Document xmlDoc, ContentEntityDTO entity, String locale) {
+        Element root = xmlDoc.getRootElement();
+        Element localeElement = findLocaleElement(root, locale);
+        
+        if (localeElement == null) {
+            LOG.warn("Locale {} not found in document, creating new locale element", locale);
+            localeElement = root.addElement(entity.getTypeName());
+            localeElement.addAttribute("language", locale);
+        }
+        
+        localeElement.clearContent();
+        
+        updateElementFromEntity(localeElement, entity);
+        
+        LOG.debug("Updated document from entity for locale: {}", locale);
+    }
+    
+    /**
+     * Recursively updates XML elements from entity attributes.
+     *
+     * @param parentElement the parent XML element to update
+     * @param entity the entity with attributes to map
+     */
+    private static void updateElementFromEntity(Element parentElement, ContentEntityDTO entity) {
+        for (Map.Entry<String, List<String>> entry : entity.getSimpleAttributes().entrySet()) {
+            String attrName = entry.getKey();
+            List<String> values = entry.getValue();
+            
+            for (String value : values) {
+                Element childElement = parentElement.addElement(attrName);
+                if (value != null) {
+                    if (value.contains("<") || value.contains(">") || value.contains("&")) {
+                        childElement.addCDATA(value);
+                    } else {
+                        childElement.setText(value);
+                    }
+                }
+            }
+        }
+        
+        for (Map.Entry<String, List<ContentEntityDTO>> entry : entity.getEntityAttributes().entrySet()) {
+            String attrName = entry.getKey();
+            List<ContentEntityDTO> nestedEntities = entry.getValue();
+            
+            for (ContentEntityDTO nestedEntity : nestedEntities) {
+                Element childElement = parentElement.addElement(attrName);
+                updateElementFromEntity(childElement, nestedEntity);
+            }
+        }
+    }
+    
+    /**
+     * Removes a locale element from the XML document.
+     *
+     * @param xmlDoc the XML document
+     * @param locale the locale to remove
+     */
+    public static void removeLocale(Document xmlDoc, String locale) {
+        Element root = xmlDoc.getRootElement();
+        Element localeElement = findLocaleElement(root, locale);
+        
+        if (localeElement != null) {
+            root.remove(localeElement);
+            LOG.debug("Removed locale: {}", locale);
+        } else {
+            LOG.warn("Locale {} not found for removal", locale);
+        }
+    }
+    
+    /**
+     * Updates a specific value at the given XPath within a locale.
+     *
+     * @param xmlDoc the XML document to update
+     * @param contentPath the XPath to the element (e.g., "Title[1]" or "Text[1]/content[1]")
+     * @param locale the locale to update
+     * @param value the new value to set
+     */
+    public static void updateValueAtPath(Document xmlDoc, String contentPath, String locale, String value) {
+        try {
+            Element root = xmlDoc.getRootElement();
+            Element localeElement = findLocaleElement(root, locale);
+            
+            if (localeElement == null) {
+                throw new ContentServiceException("Locale not found: " + locale);
+            }
+            
+            org.jaxen.XPath xpath = new Dom4jXPath(contentPath);
+            xpath.setNamespaceContext(new SimpleNamespaceContext(Collections.emptyMap()));
+            
+            Object result = xpath.selectSingleNode(localeElement);
+            Element targetElement;
+            
+            if (result == null) {
+                targetElement = createElementAtPath(localeElement, contentPath);
+            } else if (result instanceof Element) {
+                targetElement = (Element) result;
+            } else {
+                throw new ContentServiceException("XPath does not point to an element: " + contentPath);
+            }
+            
+            targetElement.clearContent();
+            if (value != null) {
+                if (value.contains("<") || value.contains(">") || value.contains("&")) {
+                    targetElement.addCDATA(value);
+                } else {
+                    targetElement.setText(value);
+                }
+            }
+            
+            LOG.debug("Updated value at path: {} for locale: {}", contentPath, locale);
+            
+        } catch (Exception e) {
+            LOG.error("Failed to update value at path: {}", contentPath, e);
+            throw new ContentServiceException("Failed to update value at path: " + contentPath + " - " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Creates an element at the specified XPath if it doesn't exist.
+     *
+     * @param parent the parent element
+     * @param path the XPath (e.g., "Title[1]" or "Text[1]/content[1]")
+     * @return the created or found element
+     */
+    private static Element createElementAtPath(Element parent, String path) {
+        String[] parts = path.split("/");
+        Element current = parent;
+        
+        for (String part : parts) {
+            String elementName = part.replaceAll("\\[\\d+\\]", "");
+            int index = extractIndex(part);
+            
+            List<Element> existing = current.elements(elementName);
+            if (existing.size() > index) {
+                current = existing.get(index);
+            } else {
+                while (existing.size() <= index) {
+                    current = current.addElement(elementName);
+                    existing = current.getParent().elements(elementName);
+                }
+            }
+        }
+        
+        return current;
+    }
+    
+    /**
+     * Extracts the index from an XPath part (e.g., "Title[1]" returns 0).
+     *
+     * @param pathPart the path part
+     * @return the zero-based index
+     */
+    private static int extractIndex(String pathPart) {
+        if (pathPart.contains("[") && pathPart.contains("]")) {
+            String indexStr = pathPart.substring(pathPart.indexOf("[") + 1, pathPart.indexOf("]"));
+            return Integer.parseInt(indexStr) - 1;
+        }
+        return 0;
     }
 }

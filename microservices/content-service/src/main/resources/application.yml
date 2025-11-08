@@ -40,3 +40,9 @@ management:
   endpoint:
     health:
       show-details: always
+
+spring.cache:
+  type: caffeine
+  cache-names: contentDefinitions,schemaValidation,schemas
+  caffeine:
+    spec: maximumSize=500,expireAfterWrite=600s

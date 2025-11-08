@@ -4,11 +4,13 @@ import org.opencms.content.entity.*;
 import org.opencms.content.repository.*;
 import org.opencms.content.exception.ResourceNotFoundException;
 import org.opencms.content.exception.ResourceLockedException;
+import org.opencms.content.security.SecurityContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.persistence.EntityManager;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -29,6 +31,12 @@ public class VfsOperationsServiceImpl implements VfsOperationsService {
     
     @Autowired
     private ResourceLockRepository resourceLockRepository;
+    
+    @Autowired
+    private SecurityContextHolder securityContext;
+    
+    @Autowired
+    private EntityManager entityManager;
     
     @Override
     @Transactional(readOnly = true)
@@ -57,17 +65,23 @@ public class VfsOperationsServiceImpl implements VfsOperationsService {
         
         checkLock(structure.getResourcePath());
         
+        if (!securityContext.hasWritePermission(structureId)) {
+            throw new ResourceLockedException("User does not have write permission for resource: " + structureId);
+        }
+        
         OfflineContentEntity contentEntity = offlineContentRepository.findById(structure.getResourceId())
             .orElse(new OfflineContentEntity(structure.getResourceId(), new byte[0]));
         
         contentEntity.setFileContent(content);
         offlineContentRepository.save(contentEntity);
+        entityManager.flush();
         
         OfflineResourceEntity resource = offlineResourceRepository.findById(structure.getResourceId())
             .orElseThrow(() -> new ResourceNotFoundException("Resource not found: " + structure.getResourceId()));
         
         resource.setDateLastModified(System.currentTimeMillis());
         resource.setResourceSize(content.length);
+        resource.setUserLastModified(securityContext.getCurrentUserId());
         offlineResourceRepository.save(resource);
         
         LOG.info("Successfully wrote file for structure {}", structureId);
@@ -90,12 +104,13 @@ public class VfsOperationsServiceImpl implements VfsOperationsService {
         
         ResourceLockEntity lock = new ResourceLockEntity();
         lock.setResourcePath(structure.getResourcePath());
-        lock.setUserId("system");
-        lock.setProjectId("offline");
+        lock.setUserId(securityContext.getCurrentUserId());
+        lock.setProjectId(securityContext.getCurrentProjectId());
         lock.setLockType(1);
         resourceLockRepository.save(lock);
         
-        LOG.info("Successfully locked resource: {}", structure.getResourcePath());
+        LOG.info("Successfully locked resource: {} by user: {}", structure.getResourcePath(), 
+            securityContext.getCurrentUserId());
     }
     
     @Override
@@ -137,7 +152,11 @@ public class VfsOperationsServiceImpl implements VfsOperationsService {
     private void checkLock(String resourcePath) {
         Optional<ResourceLockEntity> lock = resourceLockRepository.findByResourcePath(resourcePath);
         if (lock.isPresent()) {
-            throw new ResourceLockedException("Resource is locked: " + resourcePath);
+            String lockOwner = lock.get().getUserId();
+            String currentUser = securityContext.getCurrentUserId();
+            if (!lockOwner.equals(currentUser)) {
+                throw new ResourceLockedException("Resource is locked by another user: " + resourcePath);
+            }
         }
     }
 }

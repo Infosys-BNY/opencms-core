@@ -1,6 +1,10 @@
 package org.opencms.content.service;
 
+import org.dom4j.Document;
 import org.opencms.content.dto.*;
+import org.opencms.content.util.XmlContentParser;
+import org.opencms.content.util.XmlSchemaValidator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +15,12 @@ import java.util.*;
 public class ContentValidationService {
     
     private static final Logger LOG = LoggerFactory.getLogger(ContentValidationService.class);
+    
+    @Autowired(required = false)
+    private XmlSchemaValidator schemaValidator;
+    
+    @Autowired
+    private VfsOperationsServiceImpl vfsService;
     
     public ValidationResultDTO validateEntities(
             ContentEntityDTO changedEntity,
@@ -53,6 +63,26 @@ public class ContentValidationService {
         ValidationResultDTO result = new ValidationResultDTO();
         validateEntityInternal(entity, result);
         
+        if (schemaValidator != null && !result.hasErrors()) {
+            try {
+                UUID structureId = parseEntityId(entity.getId());
+                byte[] existingContent = vfsService.readFile(structureId);
+                Document xmlDoc = XmlContentParser.parseXml(existingContent);
+                
+                String locale = entity.getId().contains("_") ? entity.getId().substring(entity.getId().indexOf("_") + 1) : "en";
+                XmlContentParser.updateDocumentFromEntity(xmlDoc, entity, locale);
+                
+                String schemaPath = "schemas/" + entity.getTypeName() + ".xsd";
+                ValidationResultDTO schemaResult = schemaValidator.validateAgainstSchema(xmlDoc, schemaPath);
+                
+                result.getErrors().putAll(schemaResult.getErrors());
+                result.getWarnings().putAll(schemaResult.getWarnings());
+                
+            } catch (Exception e) {
+                LOG.warn("Schema validation skipped due to error: {}", e.getMessage());
+            }
+        }
+        
         LOG.debug("Validation completed for entity: {}, errors: {}, warnings: {}", 
             entity.getId(), result.hasErrors(), result.hasWarnings());
         
@@ -75,5 +105,10 @@ public class ContentValidationService {
             result.getErrors().put(entityId, new HashMap<>());
         }
         result.getErrors().get(entityId).put(fieldPath, new ValidationMessageDTO(message, help));
+    }
+    
+    private UUID parseEntityId(String entityId) {
+        String uuidPart = entityId.contains("_") ? entityId.substring(0, entityId.indexOf("_")) : entityId;
+        return UUID.fromString(uuidPart);
     }
 }
