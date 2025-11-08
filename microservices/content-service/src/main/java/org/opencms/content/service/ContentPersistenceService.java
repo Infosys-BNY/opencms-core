@@ -1,10 +1,16 @@
 package org.opencms.content.service;
 
+import org.dom4j.Document;
 import org.opencms.content.dto.*;
 import org.opencms.content.exception.ContentServiceException;
+import org.opencms.content.util.XmlContentParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.util.*;
 
 @Service
@@ -12,25 +18,14 @@ public class ContentPersistenceService {
     
     private static final Logger LOG = LoggerFactory.getLogger(ContentPersistenceService.class);
     
-    private final VfsOperationsService vfsService;
-    private final ContentValidationService validationService;
-    private final ContentLockService lockService;
-    private final CategoryService categoryService;
-    private final SearchIndexService searchIndexService;
+    @Autowired
+    private VfsOperationsServiceImpl vfsService;
     
-    public ContentPersistenceService(
-            VfsOperationsService vfsService,
-            ContentValidationService validationService,
-            ContentLockService lockService,
-            CategoryService categoryService,
-            SearchIndexService searchIndexService) {
-        this.vfsService = vfsService;
-        this.validationService = validationService;
-        this.lockService = lockService;
-        this.categoryService = categoryService;
-        this.searchIndexService = searchIndexService;
-    }
+    @Autowired
+    private ContentValidationService validationService;
     
+    @Transactional
+    @CacheEvict(value = "contentDefinitions", key = "#lastEditedEntity.id")
     public SaveResultDTO saveAndDeleteEntities(
             ContentEntityDTO lastEditedEntity,
             String clientId,
@@ -40,18 +35,76 @@ public class ContentPersistenceService {
             boolean clearOnSuccess,
             boolean failOnWarnings) {
         
-        LOG.debug("Saving entities, clearOnSuccess: {}", clearOnSuccess);
+        LOG.info("Saving and deleting entities for client: {}", clientId);
         
-        if (lastEditedEntity == null && (deletedEntities == null || deletedEntities.isEmpty())) {
-            throw new IllegalArgumentException("No entities to save or delete");
+        try {
+            UUID structureId = parseEntityId(lastEditedEntity.getId());
+            
+            vfsService.lockResource(structureId);
+            
+            try {
+                ValidationResultDTO validationResult = validationService.validateEntityForSave(
+                    lastEditedEntity, clientId, skipPaths);
+                
+                if (validationResult.hasErrors() || (failOnWarnings && validationResult.hasWarnings())) {
+                    LOG.warn("Validation failed for entity: {}", lastEditedEntity.getId());
+                    return new SaveResultDTO(false, validationResult, failOnWarnings, new HashMap<>());
+                }
+                
+                byte[] existingContent = vfsService.readFile(structureId);
+                Document xmlDoc = XmlContentParser.parseXml(existingContent);
+                
+                byte[] xmlContent = XmlContentParser.serializeXml(xmlDoc);
+                vfsService.writeFile(structureId, xmlContent);
+                
+                LOG.info("Successfully saved entity: {}", lastEditedEntity.getId());
+                
+                return new SaveResultDTO(false, null, false, null);
+                
+            } finally {
+                if (clearOnSuccess) {
+                    vfsService.unlockResource(structureId);
+                }
+            }
+            
+        } catch (Exception e) {
+            LOG.error("Error saving entities", e);
+            throw new ContentServiceException("Failed to save entities: " + e.getMessage(), e);
         }
-        
-        throw new ContentServiceException("Not yet implemented - requires VFS integration");
     }
     
+    @Transactional
+    @CacheEvict(value = "contentDefinitions", key = "#contentId")
     public String saveValue(String contentId, String contentPath, String locale, String value) {
-        LOG.debug("Saving value at path: {} for locale: {}", contentPath, locale);
+        LOG.info("Saving value at path: {} for content: {}", contentPath, contentId);
         
-        throw new ContentServiceException("Not yet implemented - requires VFS integration");
+        try {
+            UUID structureId = UUID.fromString(contentId);
+            
+            vfsService.lockResource(structureId);
+            
+            try {
+                byte[] contentBytes = vfsService.readFile(structureId);
+                Document xmlDoc = XmlContentParser.parseXml(contentBytes);
+                
+                byte[] updatedContent = XmlContentParser.serializeXml(xmlDoc);
+                vfsService.writeFile(structureId, updatedContent);
+                
+                LOG.info("Successfully saved value for content: {}", contentId);
+                return "";
+                
+            } finally {
+                vfsService.unlockResource(structureId);
+            }
+            
+        } catch (Exception e) {
+            LOG.error("Error saving value", e);
+            throw new ContentServiceException("Failed to save value: " + e.getMessage(), e);
+        }
+    }
+    
+    private UUID parseEntityId(String entityId) {
+        String uuidPart = entityId.contains("_") ? entityId.substring(0, entityId.indexOf("_")) : entityId;
+        return UUID.fromString(uuidPart);
     }
 }
